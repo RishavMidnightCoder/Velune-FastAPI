@@ -1,11 +1,9 @@
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
-from src.utils.constant import FRONTEND_ORIGINS, UPLOAD_DIR
+from src.utils.constant import FRONTEND_ORIGINS
 from src.utils.db import Base, SessionLocal, engine
 
 # Importing the routers also imports every model, so create_all sees all tables.
@@ -15,12 +13,11 @@ from src.play.router import router as play_router
 from src.stories.router import admin_router as stories_admin_router
 from src.stories.router import router as stories_router
 from src.stories.router import stats_router
+from src.uploads.router import media_router
 from src.uploads.router import router as uploads_router
 from src.users.controller import seed_admin
 from src.users.router import admin_router as users_admin_router
 from src.users.router import router as auth_router
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 @asynccontextmanager
@@ -50,8 +47,7 @@ app.include_router(characters_router)
 app.include_router(characters_admin_router)
 app.include_router(play_router)
 app.include_router(uploads_router)
-
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+app.include_router(media_router)
 
 
 @app.get("/", tags=["Health"])
