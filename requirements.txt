@@ -8,3 +8,4 @@ PyJWT
 bcrypt
 groq
 python-multipart
+psycopg[binary]
