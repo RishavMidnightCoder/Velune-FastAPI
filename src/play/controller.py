@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import shutil  # CHANGED: used to check whether ffmpeg exists
 
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select
@@ -229,7 +230,13 @@ def prepare_action(db: Session, user: User, story_id: int, dto: ActionDto) -> di
             ChatMessage.role == "assistant",
         )
     ) or 0
-    media_kind = MEDIA_CYCLE[replies_so_far % len(MEDIA_CYCLE)] if IMAGE_ENABLED else None
+
+    # CHANGED: skip the video slot when ffmpeg is not installed (e.g. on Vercel),
+    # so we generate a still image instead of attempting a video that can't work.
+    kind = MEDIA_CYCLE[replies_so_far % len(MEDIA_CYCLE)] if IMAGE_ENABLED else None
+    if kind == "video" and not shutil.which("ffmpeg"):
+        kind = "image"
+    media_kind = kind
 
     action = dto.action.strip()
     db.add(ChatMessage(user_id=user.id, story_id=story_id, role="user", content=action))
@@ -246,6 +253,8 @@ def prepare_action(db: Session, user: User, story_id: int, dto: ActionDto) -> di
         "tone": story.tone,
         "cast": "; ".join(f"{c.name} ({c.role}): {(c.personality or '')[:80]}" for c in characters)
         or "none named",
+        # CHANGED: character name -> portrait path, only for characters that have a portrait.
+        "cast_images": {c.name: c.image for c in characters if c.image},
         "action": action,
         "memory": progress.memory_journal,
         "language": dto.language,
@@ -268,12 +277,20 @@ def _parse_json(text: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
-async def _generate_extras(client, ctx: dict, reply: str) -> tuple[list[str], str, str]:
+# CHANGED: now returns four values (choices, memory, image_prompt, characters_in_scene).
+async def _generate_extras(client, ctx: dict, reply: str) -> tuple[list[str], str, str, list[str]]:
     """Second, small call: next choices + updated memory (+ an image prompt when one is due)."""
     image_line = ""
     author_line = ""
     if ctx["image_due"]:
-        if ctx["has_cover"]:
+        names = list(ctx["cast_images"])
+        if names:
+            # CHANGED: portraits exist, so the model must use exact names.
+            who = (
+                "Refer to each visible character by their exact name, because reference portraits are supplied "
+                "for them. "
+            )
+        elif ctx["has_cover"]:
             who = (
                 "Refer to each visible character only by gender, age and role (for example 'the older woman "
                 "in a white blazer'), because a reference cover image supplies their faces and outfits. "
@@ -296,6 +313,11 @@ async def _generate_extras(client, ctx: dict, reply: str) -> tuple[list[str], st
             + safety
             + "No dialogue, no text."
         )
+        if names:
+            image_line += (
+                f'\n"characters_in_scene": a list of at most 2 names, taken ONLY from {names}, '
+                "for the characters visible in that shot (empty list if none)."
+            )
         author_line = f"\nAuthor's instructions: {ctx['author_instructions'] or '(none)'}"
 
     prompt = f"""Scene: "{ctx["scene_title"]}" (mood: {ctx["scene_mood"]}). Genre: {ctx["genre"]}. Tone: {ctx["tone"]}.
@@ -333,11 +355,17 @@ Return ONLY a JSON object, with no other text, with exactly these keys:
             choices = [str(c).strip() for c in data.get("choices", []) if str(c).strip()][:3]
             memory = str(data.get("memory", "")).strip()[:600] or ctx["memory"]
             image_prompt = str(data.get("image_prompt", "")).strip()[:500]
-            return choices or DEFAULT_CHOICES, memory, image_prompt
+            # CHANGED: keep only names that really have a portrait.
+            raw_names = data.get("characters_in_scene", [])
+            in_scene = [
+                n for n in (raw_names if isinstance(raw_names, list) else [])
+                if isinstance(n, str) and n in ctx["cast_images"]
+            ][:2]
+            return choices or DEFAULT_CHOICES, memory, image_prompt, in_scene
         except Exception:
             logger.exception("Extras call failed (json_mode=%s)", json_mode)
 
-    return DEFAULT_CHOICES, ctx["memory"], ""
+    return DEFAULT_CHOICES, ctx["memory"], "", []
 
 
 def _save_reply(ctx: dict, reply: str, memory: str) -> int:
@@ -365,30 +393,43 @@ def _attach_image(message_id: int, url: str) -> None:
             db.commit()
 
 
-async def _make_scene_media(ctx: dict, image_prompt: str) -> str | None:
+# CHANGED: takes in_scene (character names) and uses their portraits as references.
+async def _make_scene_media(ctx: dict, image_prompt: str, in_scene: list[str]) -> tuple[str | None, str | None]:
     base = image_prompt or f'{ctx["scene_title"]}, {ctx["scene_mood"]} mood, {ctx["genre"]} story'
     suffix = IMAGE_STYLE_SUFFIX_ADULT if ctx["age_tier"] == "adult" else IMAGE_STYLE_SUFFIX
     try:
-        # The story thumbnail is the reference, so faces and look match the cover.
         refs: list[bytes] = []
-        if ctx["cover_image"]:
-            cover = await asyncio.to_thread(load_image_bytes, ctx["cover_image"])
-            if cover:
-                refs.append(cover)
+        labels: list[str] = []
 
-        prompt = f"{REF_PROMPT_PREFIX} {base}. {suffix}" if refs else f"{base}. {suffix}"
+        # Character portraits first: they give the model real faces to copy.
+        for name in in_scene:
+            portrait = await asyncio.to_thread(load_image_bytes, ctx["cast_images"][name])
+            if portrait:
+                refs.append(portrait)
+                labels.append(f"Image {len(refs) - 1} is {name}: keep exactly this face, hairstyle and skin tone.")
+
+        if refs:
+            prompt = f"{' '.join(labels)} New scene: {base}. {suffix}"
+        else:
+            # No portrait applies to this shot: fall back to the cover as before.
+            if ctx["cover_image"]:
+                cover = await asyncio.to_thread(load_image_bytes, ctx["cover_image"])
+                if cover:
+                    refs.append(cover)
+            prompt = f"{REF_PROMPT_PREFIX} {base}. {suffix}" if refs else f"{base}. {suffix}"
+
         data = await generate_image_bytes(prompt, refs)
 
         if ctx["media_kind"] == "video":
             try:
                 video = await asyncio.to_thread(image_to_video_bytes, data)
-                return save_video_bytes(video)
+                return save_video_bytes(video), "video"
             except Exception:
                 logger.exception("Video failed, falling back to image")
-        return save_image_bytes(data)
+        return save_image_bytes(data), "image"
     except Exception:
         logger.exception("Scene media generation failed")
-        return None
+        return None, None
 
 
 async def stream_action(ctx: dict):
@@ -417,7 +458,8 @@ async def stream_action(ctx: dict):
         yield sse({"type": "error", "message": "The story engine returned an empty reply."})
         return
 
-    choices, memory, image_prompt = await _generate_extras(client, ctx, reply)
+    # CHANGED: unpack the fourth value.
+    choices, memory, image_prompt, in_scene = await _generate_extras(client, ctx, reply)
     message_id = _save_reply(ctx, reply, memory)
 
     # The player can already read the reply and see the choices; the media follows.
@@ -433,9 +475,8 @@ async def stream_action(ctx: dict):
     )
 
     if ctx["image_due"]:
-        url = await _make_scene_media(ctx, image_prompt)
+        # CHANGED: pass in_scene and report the real media type.
+        url, kind = await _make_scene_media(ctx, image_prompt, in_scene)
         if url:
             _attach_image(message_id, url)
-        yield sse(
-            {"type": "image", "messageId": message_id, "url": url, "mediaType": ctx["media_kind"]}
-        )
+        yield sse({"type": "image", "messageId": message_id, "url": url, "mediaType": kind})

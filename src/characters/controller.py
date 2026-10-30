@@ -17,6 +17,7 @@ def _out(c: Character, story_title: str) -> CharacterOut:
         role=c.role,
         personality=c.personality,
         backstory=c.backstory,
+        image=c.image,
     )
 
 
@@ -50,6 +51,7 @@ def create_character(db: Session, dto: CharacterDto) -> CharacterOut:
         role=dto.role,
         personality=dto.personality,
         backstory=dto.backstory,
+        image=dto.image,
     )
     db.add(character)
     db.commit()
@@ -65,6 +67,7 @@ def update_character(db: Session, character_id: int, dto: CharacterDto) -> Chara
     character.role = dto.role
     character.personality = dto.personality
     character.backstory = dto.backstory
+    character.image = dto.image
     db.commit()
     db.refresh(character)
     return _out(character, story.title)

@@ -13,3 +13,4 @@ class Character(Base):
     role: Mapped[str] = mapped_column(String(100), default="")
     personality: Mapped[str] = mapped_column(Text, default="")
     backstory: Mapped[str] = mapped_column(Text, default="")
+    image: Mapped[str | None] = mapped_column(String(500), nullable=True, default=None)

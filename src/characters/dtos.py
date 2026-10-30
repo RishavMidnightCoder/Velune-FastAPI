@@ -9,6 +9,7 @@ class CharacterDto(CamelModel):
     role: str = Field(default="", max_length=100)
     personality: str = ""
     backstory: str = ""
+    image: str | None = None
 
 
 class CharacterOut(CamelModel):
@@ -19,3 +20,4 @@ class CharacterOut(CamelModel):
     role: str
     personality: str
     backstory: str
+    image: str | None = None
