@@ -9,3 +9,4 @@ bcrypt
 groq
 python-multipart
 psycopg[binary]
+httpx

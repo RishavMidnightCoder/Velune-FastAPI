@@ -19,6 +19,7 @@ class MessageOut(CamelModel):
     role: str
     content: str
     created_at: datetime
+    image_url: str | None = None
 
 
 class SceneBrief(CamelModel):

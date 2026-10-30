@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from src.utils.constant import FRONTEND_ORIGINS
 from src.utils.db import Base, SessionLocal, engine
@@ -23,6 +24,9 @@ from src.users.router import router as auth_router
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
+    # Temporary schema patch until Alembic is added. Safe to run on every start.
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS image_url VARCHAR(500)"))
     with SessionLocal() as db:
         seed_admin(db)
     yield

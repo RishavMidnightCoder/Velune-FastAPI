@@ -41,3 +41,28 @@ LANGUAGE_RULES = {
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+
+IMAGE_ENABLED = os.getenv("IMAGE_ENABLED", "true").lower() == "true"
+IMAGE_API_URL = os.getenv("IMAGE_API_URL", "https://api.together.ai/v1/images/generations")
+IMAGE_API_KEY = os.getenv("IMAGE_API_KEY", "")
+IMAGE_MODEL = os.getenv("IMAGE_MODEL", "black-forest-labs/FLUX.1-schnell")
+IMAGE_STEPS = int(os.getenv("IMAGE_STEPS", "4"))
+IMAGE_EVERY_N = max(1, int(os.getenv("IMAGE_EVERY_N", "3")))
+IMAGE_STYLE_SUFFIX = (
+    "cinematic film still, dramatic lighting, rich detail, wide 16:9 composition, "
+    "safe for work, no text, no captions, no watermark"
+)
+# Used only for stories whose age rating is adult (18+ / Adult / Mature).
+IMAGE_STYLE_SUFFIX_ADULT = (
+    "cinematic film still, dramatic moody lighting, rich detail, wide 16:9 composition, "
+    "mature dark tone, no text, no captions, no watermark"
+)
+
+IMAGE_PROVIDER = os.getenv("IMAGE_PROVIDER", "cloudflare").lower()
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_IMAGE_MODEL = os.getenv("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
+# Reference-image model: keeps the faces/look of the story thumbnail.
+CLOUDFLARE_REF_IMAGE_MODEL = os.getenv(
+    "CLOUDFLARE_REF_IMAGE_MODEL", "@cf/black-forest-labs/flux-2-klein-9b"
+)

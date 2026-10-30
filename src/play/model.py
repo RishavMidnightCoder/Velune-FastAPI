@@ -27,4 +27,5 @@ class ChatMessage(Base):
     story_id: Mapped[int] = mapped_column(ForeignKey("stories.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String(20))  # "user" or "assistant"
     content: Mapped[str] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

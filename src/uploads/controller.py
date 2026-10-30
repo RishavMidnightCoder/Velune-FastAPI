@@ -32,6 +32,31 @@ def save_image_bytes(data: bytes) -> str:
         return f"/uploads/{image.id}"
 
 
+def save_video_bytes(data: bytes) -> str:
+    """Stores an MP4 in the same table and returns e.g. /uploads/13?type=video."""
+    if data[4:8] != b"ftyp":
+        raise HTTPException(status_code=400, detail="Not a valid MP4 video")
+    with SessionLocal() as db:
+        video = StoredImage(content_type="video/mp4", data=data)
+        db.add(video)
+        db.commit()
+        db.refresh(video)
+        return f"/uploads/{video.id}?type=video"
+
+
+def load_image_bytes(path: str) -> bytes | None:
+    """Loads a stored image from a path like /uploads/12. Returns None if it is not a stored image."""
+    try:
+        image_id = int(path.split("?")[0].rstrip("/").rsplit("/", 1)[-1])
+    except (ValueError, AttributeError):
+        return None
+    with SessionLocal() as db:
+        image = db.get(StoredImage, image_id)
+        if image is None or not image.content_type.startswith("image/"):
+            return None
+        return bytes(image.data)
+
+
 async def save_image(file: UploadFile) -> str:
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
